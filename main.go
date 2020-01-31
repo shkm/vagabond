@@ -129,7 +129,7 @@ func main() {
 			} else {
 				list.SelectedRow = 0
 			}
-
+			path = "/" + list.Rows[list.SelectedRow]
 			messages.Text = path
 		case "k":
 			if list.SelectedRow > 0 {
@@ -137,8 +137,8 @@ func main() {
 			} else {
 				list.SelectedRow = len(list.Rows) - 1
 			}
+			path = "/" + list.Rows[list.SelectedRow]
 		case "l", "<Enter>":
-			path += "/" + list.Rows[list.SelectedRow]
 			files = readDir(client, path)
 			var rows []string
 			for _, file := range files {
