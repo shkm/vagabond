@@ -12,7 +12,15 @@ import (
 	"github.com/shkm/vagabond/ui/widgets"
 )
 
-const statusLineHeight = 1
+const (
+	statusLineHeight = 1
+	// NormalMode normal mode of operation
+	NormalMode = iota
+	// CommandMode user is entering command
+	CommandMode
+	// WaitingMode when user shouldn't be able to do anything
+	WaitingMode
+)
 
 // UI the TUI for Vagabond
 type UI struct {
@@ -21,6 +29,7 @@ type UI struct {
 	Pwd         string
 	localPwd    string
 	eventBus    evbus.Bus
+	mode        int
 }
 
 func NewUI(eventBus evbus.Bus, localPwd string, pwd string) *UI {
@@ -34,6 +43,7 @@ func NewUI(eventBus evbus.Bus, localPwd string, pwd string) *UI {
 		localPwd:    localPwd,
 		Pwd:         pwd,
 		eventBus:    eventBus,
+		mode:        NormalMode,
 	}
 
 	eventBus.SubscribeAsync("main:directory_read", ui.enteredDirectory, true)
@@ -98,7 +108,7 @@ func (ui *UI) selectPrevFile() {
 func (ui *UI) downloadSelectedFile() {
 	path := filepath.Clean(ui.localPwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
 	ui.StatusLine.Text = "Download to: " + path
-	ui.StatusLine.Mode = widgets.CommandMode
+	ui.mode = CommandMode
 	ui.Render()
 
 	ui.eventBus.SubscribeOnceAsync("ui:accepted_download_location", ui.handleAcceptedDownloadLocation)
@@ -108,7 +118,7 @@ func (ui *UI) handleAcceptedDownloadLocation() {
 	remotePath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
 	localPath := filepath.Clean(strings.TrimPrefix(ui.StatusLine.Text, "Download to: "))
 
-	ui.StatusLine.Mode = widgets.WaitingMode
+	ui.mode = WaitingMode
 	ui.StatusLine.Text = "Downloading…"
 	ui.Render()
 
@@ -116,7 +126,7 @@ func (ui *UI) handleAcceptedDownloadLocation() {
 }
 
 func (ui *UI) downloadedFile(remotePath string, localPath string) {
-	ui.StatusLine.Mode = widgets.NormalMode
+	ui.mode = NormalMode
 	ui.StatusLine.Text = "Downloaded " + remotePath + " to " + localPath
 	ui.Render()
 }
@@ -137,8 +147,8 @@ func (ui *UI) Loop() {
 			os.Exit(0)
 		}
 
-		switch ui.StatusLine.Mode {
-		case widgets.NormalMode:
+		switch ui.mode {
+		case NormalMode:
 			switch e.ID {
 			case "q", "<C-c>":
 				os.Exit(0)
@@ -153,7 +163,7 @@ func (ui *UI) Loop() {
 			case "y":
 				ui.downloadSelectedFile()
 			}
-		case widgets.CommandMode:
+		case CommandMode:
 			switch e.ID {
 			case "<Enter>":
 				ui.commandEntered()
