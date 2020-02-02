@@ -1,17 +1,22 @@
 package main
 
 import (
+	evbus "github.com/asaskevich/EventBus"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 
 	"github.com/shkm/vagabond/ui"
-	"github.com/shkm/vagabond/ui/widgets"
 
 	termui "github.com/gizak/termui/v3"
 	"github.com/pkg/sftp"
 )
+
+var sshConnection *exec.Cmd
+var sftpClient *sftp.Client
+var vagabondUI *ui.UI
+var eventBus evbus.Bus
 
 func openSSHConnection(host string) (*exec.Cmd, io.WriteCloser, io.Reader) {
 	cmd := exec.Command("ssh", host, "-s", "sftp")
@@ -33,62 +38,75 @@ func openSSHConnection(host string) (*exec.Cmd, io.WriteCloser, io.Reader) {
 	return cmd, writer, reader
 }
 
-func startFTPClient(reader io.Reader, writer io.WriteCloser) *sftp.Client {
+func startFTPClient(reader io.Reader, writer io.WriteCloser) (*sftp.Client, string) {
 	client, err := sftp.NewClientPipe(reader, writer)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	return client
-}
-
-func readDir(client *sftp.Client, path string) []os.FileInfo {
-	files, err := client.ReadDir(path)
+	pwd, err := client.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	return files
+	return client, pwd
 }
 
-func download(client *sftp.Client, statusLine *widgets.StatusLine, path string) {
-	sourceFile, _ := client.Open(path)
+func readDir(path string) {
+	files, err := sftpClient.ReadDir(path)
+	if err != nil {
+		panic(err)
+	}
+
+	eventBus.Publish("main:directory_read", path, files)
+}
+
+func downloadFile(path string) {
+	sourceFile, err := sftpClient.Open(path)
+	if err != nil {
+		// TODO: error event
+		panic(err)
+	}
 	defer sourceFile.Close()
 
-	localPath, _ := os.Getwd()
-	destPath := localPath + "/downloaded"
-	var _ = destPath
-	destFile, _ := os.Create(destPath)
+	localPath, err := os.Getwd()
+	if err != nil {
+		// TODO: error event
+		panic(err)
+	}
 
+	// TODO: proper path
+	destPath := localPath + "/downloaded"
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		// TODO: error event
+		panic(err)
+	}
 	defer destFile.Close()
 
 	sourceFile.WriteTo(destFile)
+
+	eventBus.Publish("main:downloaded_file", path, destPath)
 }
 
 func main() {
-	cmd, writer, reader := openSSHConnection(os.Args[1])
-	defer cmd.Wait()
+	// Setup Event Bus
+	eventBus = evbus.New()
+	eventBus.SubscribeAsync("ui:enter_directory", readDir, true)
+	eventBus.SubscribeAsync("ui:download_file", downloadFile, true)
 
-	client := startFTPClient(reader, writer)
-	defer client.Close()
+	sshConnection, writer, reader := openSSHConnection(os.Args[1])
+	defer sshConnection.Wait()
+
+	var pwd string
+	sftpClient, pwd = startFTPClient(reader, writer)
+	defer sftpClient.Close()
 
 	// Setup UI
-	vagabondUI := ui.NewUI()
+	vagabondUI = ui.NewUI(eventBus, pwd)
 	defer termui.Close()
 
-	// populate dir
-	path := "/"
-	files := readDir(client, path)
-
-	var rows []string
-	for _, file := range files {
-		rows = append(rows, file.Name())
-	}
-	vagabondUI.FileManager.Rows = rows
-
-	// Populate status line
-	path = "/" + vagabondUI.FileManager.Rows[vagabondUI.FileManager.SelectedRow]
-	vagabondUI.StatusLine.Text = path
+	readDir(pwd)
 
 	// render
 	vagabondUI.Render()

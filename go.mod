@@ -3,11 +3,14 @@ module github.com/shkm/vagabond
 go 1.13
 
 require (
+	github.com/asaskevich/EventBus v0.0.0-20180315140547-d46933a94f05
 	github.com/gdamore/tcell v1.3.0
 	github.com/gizak/termui/v3 v3.1.0
 	github.com/kevinburke/ssh_config v0.0.0-20190725054713-01f96b0aa0cd
 	github.com/lucasb-eyer/go-colorful v1.0.3 // indirect
 	github.com/mattn/go-runewidth v0.0.8 // indirect
+	github.com/mitchellh/go-wordwrap v1.0.0 // indirect
+	github.com/nsf/termbox-go v0.0.0-20191229070316-58d4fcbce2a7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/sftp v1.11.0
 	github.com/rivo/tview v0.0.0-20200129065529-3a5c6317e432

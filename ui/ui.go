@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 
+	evbus "github.com/asaskevich/EventBus"
 	termui "github.com/gizak/termui/v3"
 	termui_widgets "github.com/gizak/termui/v3/widgets"
 	"github.com/shkm/vagabond/ui/widgets"
@@ -14,6 +15,25 @@ const statusLineHeight = 1
 type UI struct {
 	StatusLine  *widgets.StatusLine
 	FileManager *termui_widgets.List
+	Pwd         string
+	eventBus    evbus.Bus
+}
+
+func NewUI(eventBus evbus.Bus, pwd string) *UI {
+	if err := termui.Init(); err != nil {
+		panic(err)
+	}
+
+	ui := &UI{
+		FileManager: newFileManager(),
+		StatusLine:  newStatusLine(),
+		Pwd:         pwd,
+		eventBus:    eventBus,
+	}
+
+	eventBus.SubscribeAsync("main:directory_read", ui.enteredDirectory, true)
+	eventBus.SubscribeAsync("main:downloaded_file", ui.downloadedFile, true)
+	return ui
 }
 
 // Render the TUI
@@ -21,57 +41,80 @@ func (ui *UI) Render() {
 	termui.Render(ui.FileManager, ui.StatusLine)
 }
 
+func (ui *UI) enterDirectory() {
+	newPath := ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow]
+
+	ui.eventBus.Publish("ui:enter_directory", newPath)
+	ui.eventBus.WaitAsync()
+}
+
+func (ui *UI) enteredDirectory(path string, files []os.FileInfo) {
+	var rows []string
+	for _, file := range files {
+		rows = append(rows, file.Name())
+	}
+
+	ui.Pwd = path
+	ui.FileManager.Rows = rows
+	ui.FileManager.SelectedRow = 0
+	ui.StatusLine.Text = ui.FileManager.Rows[0]
+}
+
+func (ui *UI) selectNextFile() {
+	if ui.FileManager.SelectedRow < len(ui.FileManager.Rows)-1 {
+		ui.FileManager.SelectedRow++
+	} else {
+		ui.FileManager.SelectedRow = 0
+	}
+
+	ui.StatusLine.Text = ui.FileManager.Rows[ui.FileManager.SelectedRow]
+}
+
+func (ui *UI) selectPrevFile() {
+	if ui.FileManager.SelectedRow > 0 {
+		ui.FileManager.SelectedRow--
+	} else {
+		ui.FileManager.SelectedRow = len(ui.FileManager.Rows) - 1
+	}
+
+	ui.StatusLine.Text = ui.FileManager.Rows[ui.FileManager.SelectedRow]
+}
+
+func (ui *UI) downloadSelectedFile() {
+	path := ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow]
+	ui.StatusLine.Text = "Downloading " + path + "..."
+	ui.Render()
+
+	ui.eventBus.Publish("ui:download_file", path)
+	ui.eventBus.WaitAsync()
+}
+
+func (ui *UI) downloadedFile(remotePath string, localPath string) {
+	ui.StatusLine.Text = "Downloaded " + remotePath + " to " + localPath
+	ui.Render()
+}
+
 // Loop listens for events
 func (ui *UI) Loop() {
 	uiEvents := termui.PollEvents()
-	for {
-		path := "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow]
 
+	for {
 		e := <-uiEvents
+
 		switch e.ID {
 		case "q", "<C-c>":
 			os.Exit(0)
-		case "j":
-			if ui.FileManager.SelectedRow < len(ui.FileManager.Rows)-1 {
-				ui.FileManager.SelectedRow++
-			} else {
-				ui.FileManager.SelectedRow = 0
-			}
-			path = "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow]
-			ui.StatusLine.Text = path
-		case "k":
-			if ui.FileManager.SelectedRow > 0 {
-				ui.FileManager.SelectedRow--
-			} else {
-				ui.FileManager.SelectedRow = len(ui.FileManager.Rows) - 1
-			}
-			path = "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow]
+		case "j", "<Down>", "<C-n>":
+			ui.selectNextFile()
+		case "k", "<Up>", "<C-p>":
+			ui.selectPrevFile()
 		case "l", "<Enter>":
-			// files = readDir(client, path)
-			// var rows []string
-			// for _, file := range files {
-			// 	rows = append(rows, file.Name())
-			// }
-
-			// ui.FileManager.Rows = rows
-			// case "y":
-			// 	download(client, statusLine, path)
+			ui.enterDirectory()
+		case "y":
+			ui.downloadSelectedFile()
 		}
 
-		ui.StatusLine.Text = path
 		ui.Render()
-	}
-}
-
-// NewUI sets up the UI
-func NewUI() *UI {
-	if err := termui.Init(); err != nil {
-		panic(err)
-	}
-
-	return &UI{
-		FileManager: newFileManager(),
-		StatusLine:  newStatusLine(),
 	}
 }
 
