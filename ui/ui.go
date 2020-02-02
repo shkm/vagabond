@@ -3,6 +3,8 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
 
 	evbus "github.com/asaskevich/EventBus"
 	termui "github.com/gizak/termui/v3"
@@ -17,10 +19,11 @@ type UI struct {
 	StatusLine  *widgets.StatusLine
 	FileManager *termui_widgets.List
 	Pwd         string
+	localPwd    string
 	eventBus    evbus.Bus
 }
 
-func NewUI(eventBus evbus.Bus, pwd string) *UI {
+func NewUI(eventBus evbus.Bus, localPwd string, pwd string) *UI {
 	if err := termui.Init(); err != nil {
 		panic(err)
 	}
@@ -28,6 +31,7 @@ func NewUI(eventBus evbus.Bus, pwd string) *UI {
 	ui := &UI{
 		FileManager: newFileManager(),
 		StatusLine:  newStatusLine(),
+		localPwd:    localPwd,
 		Pwd:         pwd,
 		eventBus:    eventBus,
 	}
@@ -92,17 +96,34 @@ func (ui *UI) selectPrevFile() {
 }
 
 func (ui *UI) downloadSelectedFile() {
-	path := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
-	ui.StatusLine.Text = "Downloading " + path + "..."
+	path := filepath.Clean(ui.localPwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
+	ui.StatusLine.Text = "Download to: " + path
+	ui.StatusLine.Mode = widgets.CommandMode
 	ui.Render()
 
-	ui.eventBus.Publish("ui:download_file", path)
-	ui.eventBus.WaitAsync()
+	ui.eventBus.SubscribeOnceAsync("ui:accepted_download_location", ui.handleAcceptedDownloadLocation)
+}
+
+func (ui *UI) handleAcceptedDownloadLocation() {
+	remotePath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
+	localPath := filepath.Clean(strings.TrimPrefix(ui.StatusLine.Text, "Download to: "))
+
+	ui.StatusLine.Mode = widgets.WaitingMode
+	ui.StatusLine.Text = "Downloading…"
+	ui.Render()
+
+	ui.eventBus.Publish("ui:download_file", remotePath, localPath)
 }
 
 func (ui *UI) downloadedFile(remotePath string, localPath string) {
+	ui.StatusLine.Mode = widgets.NormalMode
 	ui.StatusLine.Text = "Downloaded " + remotePath + " to " + localPath
 	ui.Render()
+}
+
+func (ui *UI) commandEntered() {
+	// TODO: make more generic
+	ui.handleAcceptedDownloadLocation()
 }
 
 // Loop listens for events
@@ -111,20 +132,45 @@ func (ui *UI) Loop() {
 
 	for {
 		e := <-uiEvents
-
 		switch e.ID {
-		case "q", "<C-c>":
+		case "<C-c>":
 			os.Exit(0)
-		case "j", "<Down>", "<C-n>":
-			ui.selectNextFile()
-		case "k", "<Up>", "<C-p>":
-			ui.selectPrevFile()
-		case "l", "<Enter>":
-			ui.enterDirectory()
-		case "h", "<Backspace>":
-			ui.leaveDirectory()
-		case "y":
-			ui.downloadSelectedFile()
+		}
+
+		switch ui.StatusLine.Mode {
+		case widgets.NormalMode:
+			switch e.ID {
+			case "q", "<C-c>":
+				os.Exit(0)
+			case "j", "<Down>", "<C-n>":
+				ui.selectNextFile()
+			case "k", "<Up>", "<C-p>":
+				ui.selectPrevFile()
+			case "l", "<Enter>":
+				ui.enterDirectory()
+			case "h", "<Backspace>":
+				ui.leaveDirectory()
+			case "y":
+				ui.downloadSelectedFile()
+			}
+		case widgets.CommandMode:
+			switch e.ID {
+			case "<Enter>":
+				ui.commandEntered()
+			case "<Backspace>":
+				text := ui.StatusLine.Text
+				r, size := utf8.DecodeLastRuneInString(text)
+				if r == utf8.RuneError && (size == 0 || size == 1) {
+					size = 0
+				}
+				ui.StatusLine.Text = text[:len(text)-size]
+			case "<Space>":
+				ui.StatusLine.Text += " "
+			default:
+				if len(e.ID) == 1 {
+					ui.StatusLine.Text += e.ID
+				}
+			}
 		}
 
 		ui.Render()

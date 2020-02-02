@@ -67,32 +67,25 @@ func readDir(path string) {
 	eventBus.Publish("main:directory_read", path, files)
 }
 
-func downloadFile(path string) {
-	sourceFile, err := sftpClient.Open(path)
+func downloadFile(remotePath string, localPath string) {
+	sourceFile, err := sftpClient.Open(remotePath)
 	if err != nil {
 		// TODO: error event
 		panic(err)
 	}
 	defer sourceFile.Close()
 
-	localPath, err := os.Getwd()
-	if err != nil {
-		// TODO: error event
-		panic(err)
-	}
-
 	// TODO: proper path
-	destPath := localPath + "/downloaded"
-	destFile, err := os.Create(destPath)
+	localFile, err := os.Create(localPath)
 	if err != nil {
 		// TODO: error event
 		panic(err)
 	}
-	defer destFile.Close()
+	defer localFile.Close()
 
-	sourceFile.WriteTo(destFile)
+	sourceFile.WriteTo(localFile)
 
-	eventBus.Publish("main:downloaded_file", path, destPath)
+	eventBus.Publish("main:downloaded_file", remotePath, localPath)
 }
 
 func main() {
@@ -109,8 +102,14 @@ func main() {
 	sftpClient, pwd = startFTPClient(reader, writer)
 	defer sftpClient.Close()
 
+	localPwd, err := os.Getwd()
+	if err != nil {
+		// TODO: error event
+		panic(err)
+	}
+
 	// Setup UI
-	vagabondUI = ui.NewUI(eventBus, pwd)
+	vagabondUI = ui.NewUI(eventBus, localPwd, pwd)
 	defer termui.Close()
 
 	readDir(pwd)

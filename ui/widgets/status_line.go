@@ -6,17 +6,28 @@ import (
 	termui "github.com/gizak/termui/v3"
 )
 
+const (
+	// NormalMode normal mode of operation
+	NormalMode = iota
+	// CommandMode user is entering command
+	CommandMode
+	// WaitingMode when user shouldn't be able to do anything
+	WaitingMode
+)
+
 // StatusLine Widget
 type StatusLine struct {
 	termui.Block
 	Text  string
 	Style termui.Style
+	Mode  int
 }
 
 func NewStatusLine() *StatusLine {
 	return &StatusLine{
 		Block: *termui.NewBlock(),
 		Style: termui.NewStyle(termui.ColorBlack, termui.ColorRed),
+		Mode:  NormalMode,
 	}
 }
 
