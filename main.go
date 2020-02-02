@@ -6,10 +6,10 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/shkm/vagabond/ui"
 	"github.com/shkm/vagabond/ui/widgets"
 
 	termui "github.com/gizak/termui/v3"
-	termui_widgets "github.com/gizak/termui/v3/widgets"
 	"github.com/pkg/sftp"
 )
 
@@ -51,18 +51,18 @@ func readDir(client *sftp.Client, path string) []os.FileInfo {
 	return files
 }
 
-func download(client *sftp.Client, path string) {
-	source_file, _ := client.Open(path)
-	defer source_file.Close()
+func download(client *sftp.Client, statusLine *widgets.StatusLine, path string) {
+	sourceFile, _ := client.Open(path)
+	defer sourceFile.Close()
 
-	local_path, _ := os.Getwd()
-	dest_path := local_path + "/downloaded"
-	var _ = dest_path
-	dest_file, _ := os.Create(dest_path)
+	localPath, _ := os.Getwd()
+	destPath := localPath + "/downloaded"
+	var _ = destPath
+	destFile, _ := os.Create(destPath)
 
-	defer dest_file.Close()
+	defer destFile.Close()
 
-	source_file.WriteTo(dest_file)
+	sourceFile.WriteTo(destFile)
 }
 
 func main() {
@@ -73,84 +73,24 @@ func main() {
 	defer client.Close()
 
 	// Setup UI
-	if err := termui.Init(); err != nil {
-		log.Fatalf("failed to initialize termui: %v", err)
-	}
+	vagabondUI := ui.NewUI()
 	defer termui.Close()
 
-	//read a directory
+	// populate dir
 	path := "/"
 	files := readDir(client, path)
-
-	// Create list
-	list := termui_widgets.NewList()
-	style := termui.NewStyle(termui.ColorBlack, termui.ColorWhite)
-	list.SelectedRowStyle = style
 
 	var rows []string
 	for _, file := range files {
 		rows = append(rows, file.Name())
 	}
+	vagabondUI.FileManager.Rows = rows
 
-	list.Rows = rows
-
-	// Create messages
-
-	messages := widgets.NewStatusLine()
-	// messages := termui_widgets.NewParagraph()
-
-	// Position
-	width, height := termui.TerminalDimensions()
-	messages_height := 1
-	list.Border = false
-	messages.Border = false
-	list.SetRect(0, 0, width, height-messages_height)
-	messages.SetRect(0, height-messages_height, width, height)
-
-	messages_style := termui.NewStyle(termui.ColorBlack, termui.ColorBlue)
-	messages.Style = messages_style
-	path = "/" + list.Rows[list.SelectedRow]
-	messages.Text = path
+	// Populate status line
+	path = "/" + vagabondUI.FileManager.Rows[vagabondUI.FileManager.SelectedRow]
+	vagabondUI.StatusLine.Text = path
 
 	// render
-	termui.Render(list, messages)
-	uiEvents := termui.PollEvents()
-
-	for {
-		path = "/" + list.Rows[list.SelectedRow]
-
-		e := <-uiEvents
-		switch e.ID {
-		case "q", "<C-c>":
-			os.Exit(0)
-		case "j":
-			if list.SelectedRow < len(list.Rows)-1 {
-				list.SelectedRow += 1
-			} else {
-				list.SelectedRow = 0
-			}
-			path = "/" + list.Rows[list.SelectedRow]
-			messages.Text = path
-		case "k":
-			if list.SelectedRow > 0 {
-				list.SelectedRow -= 1
-			} else {
-				list.SelectedRow = len(list.Rows) - 1
-			}
-			path = "/" + list.Rows[list.SelectedRow]
-		case "l", "<Enter>":
-			files = readDir(client, path)
-			var rows []string
-			for _, file := range files {
-				rows = append(rows, file.Name())
-			}
-
-			list.Rows = rows
-		case "y":
-			download(client, path)
-		}
-
-		messages.Text = path
-		termui.Render(list, messages)
-	}
+	vagabondUI.Render()
+	vagabondUI.Loop()
 }
