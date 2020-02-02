@@ -57,10 +57,16 @@ func (ui *UI) Render() {
 }
 
 func (ui *UI) enterDirectory() {
-	newPath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
+	selectedDir := ui.FileManager.Rows[ui.FileManager.SelectedRow]
 
-	ui.eventBus.Publish("ui:enter_directory", newPath)
-	ui.eventBus.WaitAsync()
+	// TODO: ugly, we should really check if it's actually a dir
+	if strings.HasSuffix(selectedDir, "/") || selectedDir == ".." {
+		newPath := filepath.Clean(ui.Pwd + "/" + selectedDir)
+		ui.eventBus.Publish("ui:enter_directory", newPath)
+		ui.eventBus.WaitAsync()
+	} else {
+		// TODO: throw UI error, can't enter a file
+	}
 }
 
 func (ui *UI) enteredDirectory(path string, files []os.FileInfo) {
@@ -71,7 +77,11 @@ func (ui *UI) enteredDirectory(path string, files []os.FileInfo) {
 	}
 
 	for _, file := range files {
-		rows = append(rows, file.Name())
+		name := file.Name()
+		if file.IsDir() {
+			name += "/"
+		}
+		rows = append(rows, name)
 	}
 
 	ui.Pwd = path
