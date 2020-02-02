@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/shkm/vagabond/ui"
 
@@ -49,7 +50,12 @@ func startFTPClient(reader io.Reader, writer io.WriteCloser) (*sftp.Client, stri
 		panic(err)
 	}
 
-	return client, pwd
+	return client, filepath.Clean(pwd)
+}
+
+func leaveDirectory(path string) {
+	newPath := filepath.Clean(path + "/..")
+	readDir(newPath)
 }
 
 func readDir(path string) {
@@ -94,6 +100,7 @@ func main() {
 	eventBus = evbus.New()
 	eventBus.SubscribeAsync("ui:enter_directory", readDir, true)
 	eventBus.SubscribeAsync("ui:download_file", downloadFile, true)
+	eventBus.SubscribeAsync("ui:leave_directory", leaveDirectory, true)
 
 	sshConnection, writer, reader := openSSHConnection(os.Args[1])
 	defer sshConnection.Wait()

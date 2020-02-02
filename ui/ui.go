@@ -2,6 +2,7 @@ package ui
 
 import (
 	"os"
+	"path/filepath"
 
 	evbus "github.com/asaskevich/EventBus"
 	termui "github.com/gizak/termui/v3"
@@ -42,7 +43,7 @@ func (ui *UI) Render() {
 }
 
 func (ui *UI) enterDirectory() {
-	newPath := ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow]
+	newPath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
 
 	ui.eventBus.Publish("ui:enter_directory", newPath)
 	ui.eventBus.WaitAsync()
@@ -50,6 +51,11 @@ func (ui *UI) enterDirectory() {
 
 func (ui *UI) enteredDirectory(path string, files []os.FileInfo) {
 	var rows []string
+
+	if path != "/" {
+		rows = append(rows, "..")
+	}
+
 	for _, file := range files {
 		rows = append(rows, file.Name())
 	}
@@ -57,7 +63,12 @@ func (ui *UI) enteredDirectory(path string, files []os.FileInfo) {
 	ui.Pwd = path
 	ui.FileManager.Rows = rows
 	ui.FileManager.SelectedRow = 0
-	ui.StatusLine.Text = ui.FileManager.Rows[0]
+	ui.StatusLine.Text = filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[0])
+}
+
+func (ui *UI) leaveDirectory() {
+	ui.eventBus.Publish("ui:leave_directory", ui.Pwd)
+	ui.eventBus.WaitAsync()
 }
 
 func (ui *UI) selectNextFile() {
@@ -67,7 +78,7 @@ func (ui *UI) selectNextFile() {
 		ui.FileManager.SelectedRow = 0
 	}
 
-	ui.StatusLine.Text = ui.FileManager.Rows[ui.FileManager.SelectedRow]
+	ui.StatusLine.Text = filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
 }
 
 func (ui *UI) selectPrevFile() {
@@ -77,11 +88,11 @@ func (ui *UI) selectPrevFile() {
 		ui.FileManager.SelectedRow = len(ui.FileManager.Rows) - 1
 	}
 
-	ui.StatusLine.Text = ui.FileManager.Rows[ui.FileManager.SelectedRow]
+	ui.StatusLine.Text = filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
 }
 
 func (ui *UI) downloadSelectedFile() {
-	path := ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow]
+	path := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
 	ui.StatusLine.Text = "Downloading " + path + "..."
 	ui.Render()
 
@@ -110,6 +121,8 @@ func (ui *UI) Loop() {
 			ui.selectPrevFile()
 		case "l", "<Enter>":
 			ui.enterDirectory()
+		case "h", "<Backspace>":
+			ui.leaveDirectory()
 		case "y":
 			ui.downloadSelectedFile()
 		}
