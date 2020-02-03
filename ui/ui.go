@@ -154,14 +154,14 @@ func (ui *UI) Loop() {
 		e := <-uiEvents
 		switch e.ID {
 		case "<C-c>":
-			os.Exit(0)
+			return
 		}
 
 		switch ui.mode {
 		case NormalMode:
 			switch e.ID {
 			case "q", "<C-c>":
-				os.Exit(0)
+				return
 			case "j", "<Down>", "<C-n>":
 				ui.selectNextFile()
 			case "k", "<Up>", "<C-p>":
