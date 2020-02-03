@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/shkm/vagabond/ui/commands"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,12 +25,19 @@ const (
 
 // UI the TUI for Vagabond
 type UI struct {
-	StatusLine  *widgets.StatusLine
-	FileManager *termui_widgets.List
-	Pwd         string
-	localPwd    string
-	eventBus    evbus.Bus
-	mode        int
+	StatusLine     *widgets.StatusLine
+	FileManager    *termui_widgets.List
+	Pwd            string
+	localPwd       string
+	eventBus       evbus.Bus
+	mode           int
+	currentCommand commands.Command
+}
+
+func (ui *UI) ShowCommand(content string) {
+	ui.mode = CommandMode
+	ui.StatusLine.Text = content
+	ui.Render()
 }
 
 func NewUI(eventBus evbus.Bus, localPwd string, pwd string) *UI {
@@ -115,24 +123,37 @@ func (ui *UI) selectPrevFile() {
 	ui.StatusLine.Text = filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
 }
 
-func (ui *UI) downloadSelectedFile() {
-	path := filepath.Clean(ui.localPwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
-	ui.StatusLine.Text = "Download to: " + path
-	ui.mode = CommandMode
-	ui.Render()
-
-	ui.eventBus.SubscribeOnceAsync("ui:accepted_download_location", ui.handleAcceptedDownloadLocation)
+func (ui *UI) selectedFileName() string {
+	return ui.FileManager.Rows[ui.FileManager.SelectedRow]
 }
 
-func (ui *UI) handleAcceptedDownloadLocation() {
-	remotePath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
-	localPath := filepath.Clean(strings.TrimPrefix(ui.StatusLine.Text, "Download to: "))
+func (ui *UI) downloadSelectedFile() {
+	localPath := filepath.Clean(ui.localPwd + "/" + ui.selectedFileName())
+	commandArgs := &commands.InitCommandArgs{
+		Input:          localPath,
+		Ui:             ui,
+		Prompt:         "Download to: ",
+		OnEndInput:     ui.handleConfirmedDownloadLocation,
+		OnInputChanged: ui.handleCommandInputChanged,
+	}
 
+	ui.currentCommand = commands.NewDownloadFile(commandArgs)
+	ui.currentCommand.StartInput()
+}
+
+func (ui *UI) handleConfirmedDownloadLocation(command commands.Command) {
+	remotePath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
+	localPath := filepath.Clean(command.GetInput())
 	ui.mode = WaitingMode
 	ui.StatusLine.Text = "Downloading…"
 	ui.Render()
 
 	ui.eventBus.Publish("ui:download_file", remotePath, localPath)
+}
+
+func (ui *UI) handleCommandInputChanged(command commands.Command) {
+	ui.StatusLine.Text = command.GetFullText() // not enough, need prompt too
+	ui.Render()
 }
 
 func (ui *UI) downloadedFile(remotePath string, localPath string) {
@@ -141,21 +162,12 @@ func (ui *UI) downloadedFile(remotePath string, localPath string) {
 	ui.Render()
 }
 
-func (ui *UI) commandEntered() {
-	// TODO: make more generic
-	ui.handleAcceptedDownloadLocation()
-}
-
 // Loop listens for events
 func (ui *UI) Loop() {
 	uiEvents := termui.PollEvents()
 
 	for {
 		e := <-uiEvents
-		switch e.ID {
-		case "<C-c>":
-			return
-		}
 
 		switch ui.mode {
 		case NormalMode:
@@ -173,27 +185,38 @@ func (ui *UI) Loop() {
 			case "y":
 				ui.downloadSelectedFile()
 			}
+			ui.Render()
+
 		case CommandMode:
-			switch e.ID {
-			case "<Enter>":
-				ui.commandEntered()
-			case "<Backspace>":
-				text := ui.StatusLine.Text
-				r, size := utf8.DecodeLastRuneInString(text)
-				if r == utf8.RuneError && (size == 0 || size == 1) {
-					size = 0
+			if e.ID == "<C-c>" {
+				ui.currentCommand = nil
+				ui.mode = NormalMode
+				ui.Render()
+			} else {
+				input := ui.currentCommand.GetInput()
+
+				switch e.ID {
+				case "<C-c>":
+				case "<Enter>":
+					ui.currentCommand.EndInput()
+				case "<Backspace>":
+					r, size := utf8.DecodeLastRuneInString(input)
+					if r == utf8.RuneError && (size == 0 || size == 1) {
+						size = 0
+					}
+
+					input = input[:len(input)-size]
+				case "<Space>":
+					input += " "
+				default:
+					if len(e.ID) == 1 {
+						input += e.ID
+					}
 				}
-				ui.StatusLine.Text = text[:len(text)-size]
-			case "<Space>":
-				ui.StatusLine.Text += " "
-			default:
-				if len(e.ID) == 1 {
-					ui.StatusLine.Text += e.ID
-				}
+
+				ui.currentCommand.ChangeInput(input)
 			}
 		}
-
-		ui.Render()
 	}
 }
 
