@@ -4,7 +4,6 @@ import (
 	"github.com/shkm/vagabond/ui/commands"
 	"os"
 	"path/filepath"
-	"strings"
 	"unicode/utf8"
 
 	evbus "github.com/asaskevich/EventBus"
@@ -26,7 +25,7 @@ const (
 // UI the TUI for Vagabond
 type UI struct {
 	StatusLine     *widgets.StatusLine
-	FileManager    *termui_widgets.List
+	FileManager    *widgets.FileList
 	Pwd            string
 	localPwd       string
 	eventBus       evbus.Bus
@@ -45,8 +44,12 @@ func NewUI(eventBus evbus.Bus, localPwd string, pwd string) *UI {
 		panic(err)
 	}
 
+	fileManager := widgets.NewFileList()
+	width, height := termui.TerminalDimensions()
+	fileManager.SetRect(0, 0, width, height-statusLineHeight)
+
 	ui := &UI{
-		FileManager: newFileManager(),
+		FileManager: fileManager,
 		StatusLine:  newStatusLine(),
 		localPwd:    localPwd,
 		Pwd:         pwd,
@@ -65,12 +68,11 @@ func (ui *UI) Render() {
 }
 
 func (ui *UI) enterDirectory() {
-	selectedDir := ui.FileManager.Rows[ui.FileManager.SelectedRow]
+	// selectedDir := ui.FileManager.Rows[ui.FileManager.SelectedRow]
 
-	// TODO: ugly, we should really check if it's actually a dir
-	if strings.HasSuffix(selectedDir, "/") || selectedDir == ".." {
-		newPath := filepath.Clean(ui.Pwd + "/" + selectedDir)
-		ui.eventBus.Publish("ui:enter_directory", newPath)
+	selectedRow := ui.FileManager.SelectedRow()
+	if selectedRow.FileInfo.IsDir() {
+		ui.eventBus.Publish("ui:enter_directory", filepath.Clean(selectedRow.Path))
 		ui.eventBus.WaitAsync()
 	} else {
 		// TODO: throw UI error, can't enter a file
@@ -78,24 +80,11 @@ func (ui *UI) enterDirectory() {
 }
 
 func (ui *UI) enteredDirectory(path string, files []os.FileInfo) {
-	var rows []string
-
-	if path != "/" {
-		rows = append(rows, "..")
-	}
-
-	for _, file := range files {
-		name := file.Name()
-		if file.IsDir() {
-			name += "/"
-		}
-		rows = append(rows, name)
-	}
+	ui.FileManager.PopulateRows(path, files)
 
 	ui.Pwd = path
-	ui.FileManager.Rows = rows
-	ui.FileManager.SelectedRow = 0
-	ui.StatusLine.Text = filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[0])
+	ui.StatusLine.Text = filepath.Clean(ui.FileManager.SelectedRow().FileInfo.Name())
+	ui.Render()
 }
 
 func (ui *UI) leaveDirectory() {
@@ -104,27 +93,49 @@ func (ui *UI) leaveDirectory() {
 }
 
 func (ui *UI) selectNextFile() {
-	if ui.FileManager.SelectedRow < len(ui.FileManager.Rows)-1 {
-		ui.FileManager.SelectedRow++
+	if ui.FileManager.SelectedRowIndex < len(ui.FileManager.FileRows)-1 {
+		ui.FileManager.SelectRow(ui.FileManager.SelectedRowIndex + 1)
 	} else {
-		ui.FileManager.SelectedRow = 0
+		ui.FileManager.SelectRow(0)
 	}
 
-	ui.StatusLine.Text = filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
+	ui.StatusLine.Text = ui.FileManager.SelectedRow().FileInfo.Name()
 }
 
 func (ui *UI) selectPrevFile() {
-	if ui.FileManager.SelectedRow > 0 {
-		ui.FileManager.SelectedRow--
+	if ui.FileManager.SelectedRowIndex > 0 {
+		ui.FileManager.SelectRow(ui.FileManager.SelectedRowIndex - 1)
 	} else {
-		ui.FileManager.SelectedRow = len(ui.FileManager.Rows) - 1
+		ui.FileManager.SelectRow(len(ui.FileManager.FileRows) - 1)
 	}
 
-	ui.StatusLine.Text = filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
+	ui.StatusLine.Text = ui.FileManager.SelectedRow().FileInfo.Name()
 }
 
+// func (ui *UI) startFinding() {
+// 	commandArgs := &commands.InitCommandArgs{
+// 		Ui:             ui,
+// 		Prompt:         "/",
+// 		OnEndInput:     ui.handleFinishedFinding,
+// 		// OnInputChanged: ui.handleFindChanged,
+// 	}
+// }
+
+// func (ui *UI) handleFinishedFinding(command commands.Command) {
+
+// }
+
+// func (ui *UI) handleFindChanged(command commands.Command) {
+// 	for _, row := range ui.FileManager.FileRows {
+// 		if strings.Contains(row, command.GetInput()) {
+
+// 		}
+// 	}
+// 	ui.FileManager.Rows
+// }
+
 func (ui *UI) selectedFileName() string {
-	return ui.FileManager.Rows[ui.FileManager.SelectedRow]
+	return ui.FileManager.SelectedRow().FileInfo.Name()
 }
 
 func (ui *UI) downloadSelectedFile() {
@@ -142,7 +153,7 @@ func (ui *UI) downloadSelectedFile() {
 }
 
 func (ui *UI) handleConfirmedDownloadLocation(command commands.Command) {
-	remotePath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.Rows[ui.FileManager.SelectedRow])
+	remotePath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.SelectedRow().FileInfo.Name())
 	localPath := filepath.Clean(command.GetInput())
 	ui.mode = WaitingMode
 	ui.StatusLine.Text = "Downloading…"
@@ -172,6 +183,8 @@ func (ui *UI) Loop() {
 		switch ui.mode {
 		case NormalMode:
 			switch e.ID {
+			// case "d":
+			// 	ui.FileManager.ScrollDown()
 			case "q", "<C-c>":
 				return
 			case "j", "<Down>", "<C-n>":
@@ -184,7 +197,10 @@ func (ui *UI) Loop() {
 				ui.leaveDirectory()
 			case "y":
 				ui.downloadSelectedFile()
+				// case "f":
+				// 	ui.startFinding()
 			}
+
 			ui.Render()
 
 		case CommandMode:
