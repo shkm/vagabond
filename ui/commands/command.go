@@ -1,7 +1,7 @@
 package commands
 
 type CommandUI interface {
-	ShowCommand(string)
+	ShowCommand(string, string)
 }
 
 type Command interface {

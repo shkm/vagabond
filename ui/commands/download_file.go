@@ -34,7 +34,7 @@ func (command *DownloadFile) ChangeInput(newInput string) {
 }
 
 func (command *DownloadFile) StartInput() {
-	command.ui.ShowCommand(command.GetFullText())
+	command.ui.ShowCommand(command.prompt, command.input)
 }
 
 func (command *DownloadFile) EndInput() {

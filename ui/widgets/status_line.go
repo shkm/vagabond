@@ -9,8 +9,9 @@ import (
 // StatusLine Widget
 type StatusLine struct {
 	termui.Block
-	Text  string
-	Style termui.Style
+	StaticText string
+	Text       string
+	Style      termui.Style
 }
 
 func NewStatusLine() *StatusLine {
@@ -20,22 +21,26 @@ func NewStatusLine() *StatusLine {
 	}
 }
 
+func (statusLine *StatusLine) getFullText() string {
+	return statusLine.StaticText + statusLine.Text
+}
+
 func (self *StatusLine) Draw(buf *termui.Buffer) {
 	self.Block.Draw(buf)
 
-	// cells := termui.ParseStyles(self.Text, self.Style)
-
 	blankCell := termui.NewCell(' ', self.Style)
+
+	text := self.getFullText()
 
 	// left pad
 	buf.SetCell(blankCell, image.Pt(0, 0).Add(self.Min))
 
-	for x, char := range self.Text {
+	for x, char := range text {
 		cell := termui.NewCell(char, self.Style)
 		buf.SetCell(cell, image.Pt(x+1, 0).Add(self.Min))
 	}
 
-	for x := len(self.Text) + 1; x < buf.Max.X; x++ {
+	for x := len(text) + 1; x < buf.Max.X; x++ {
 		buf.SetCell(blankCell, image.Pt(x, 0).Add(self.Min))
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"github.com/shkm/vagabond/ui/commands"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	evbus "github.com/asaskevich/EventBus"
@@ -25,7 +27,7 @@ const (
 // UI the TUI for Vagabond
 type UI struct {
 	StatusLine     *widgets.StatusLine
-	FileManager    *widgets.FileList
+	FileList       *widgets.FileList
 	Pwd            string
 	localPwd       string
 	eventBus       evbus.Bus
@@ -33,9 +35,10 @@ type UI struct {
 	currentCommand commands.Command
 }
 
-func (ui *UI) ShowCommand(content string) {
+func (ui *UI) ShowCommand(staticText string, inputText string) {
 	ui.mode = CommandMode
-	ui.StatusLine.Text = content
+	ui.StatusLine.StaticText = staticText
+	ui.StatusLine.Text = inputText
 	ui.Render()
 }
 
@@ -44,17 +47,17 @@ func NewUI(eventBus evbus.Bus, localPwd string, pwd string) *UI {
 		panic(err)
 	}
 
-	fileManager := widgets.NewFileList()
+	fileList := widgets.NewFileList()
 	width, height := termui.TerminalDimensions()
-	fileManager.SetRect(0, 0, width, height-statusLineHeight)
+	fileList.SetRect(0, 0, width, height-statusLineHeight)
 
 	ui := &UI{
-		FileManager: fileManager,
-		StatusLine:  newStatusLine(),
-		localPwd:    localPwd,
-		Pwd:         pwd,
-		eventBus:    eventBus,
-		mode:        NormalMode,
+		FileList:   fileList,
+		StatusLine: newStatusLine(),
+		localPwd:   localPwd,
+		Pwd:        pwd,
+		eventBus:   eventBus,
+		mode:       NormalMode,
 	}
 
 	eventBus.SubscribeAsync("main:directory_read", ui.enteredDirectory, true)
@@ -64,13 +67,65 @@ func NewUI(eventBus evbus.Bus, localPwd string, pwd string) *UI {
 
 // Render the TUI
 func (ui *UI) Render() {
-	termui.Render(ui.FileManager, ui.StatusLine)
+	termui.Render(ui.FileList, ui.StatusLine)
+}
+
+func (ui *UI) goToPrevMatch() {
+	prev, next := ui.buildMatchIndices()
+
+	if len(prev) > 0 {
+		ui.FileList.SelectRow(prev[len(prev)-1])
+	} else if len(next) > 0 {
+		ui.FileList.SelectRow(next[len(next)-1])
+	} else {
+		// set status line and return
+		return
+	}
+
+	ui.Render()
+}
+
+func (ui *UI) goToNextMatch() {
+	prev, next := ui.buildMatchIndices()
+
+	if len(next) > 0 {
+		ui.FileList.SelectRow(next[0])
+	} else if len(prev) > 0 {
+		ui.FileList.SelectRow(prev[0])
+	} else {
+		// set status line and return
+		return
+	}
+
+	ui.Render()
+}
+
+func (ui *UI) buildMatchIndices() ([]int, []int) {
+	selectedRowIndex := ui.FileList.SelectedRowIndex
+	indices := ui.FileList.GetMarkedRowIndices()
+
+	var previousIndices []int
+	var nextIndices []int
+
+	for _, index := range indices {
+		if index == selectedRowIndex {
+			continue
+		}
+
+		if index < selectedRowIndex {
+			previousIndices = append(previousIndices, index)
+		} else {
+			nextIndices = append(nextIndices, index)
+		}
+	}
+
+	return previousIndices, nextIndices
 }
 
 func (ui *UI) enterDirectory() {
-	// selectedDir := ui.FileManager.Rows[ui.FileManager.SelectedRow]
+	// selectedDir := ui.FileList.Rows[ui.FileList.SelectedRow]
 
-	selectedRow := ui.FileManager.SelectedRow()
+	selectedRow := ui.FileList.SelectedRow()
 	if selectedRow.FileInfo.IsDir() {
 		ui.eventBus.Publish("ui:enter_directory", filepath.Clean(selectedRow.Path))
 		ui.eventBus.WaitAsync()
@@ -80,10 +135,10 @@ func (ui *UI) enterDirectory() {
 }
 
 func (ui *UI) enteredDirectory(path string, files []os.FileInfo) {
-	ui.FileManager.PopulateRows(path, files)
+	ui.FileList.PopulateRows(path, files)
 
 	ui.Pwd = path
-	ui.StatusLine.Text = filepath.Clean(ui.FileManager.SelectedRow().FileInfo.Name())
+	ui.StatusLine.Text = filepath.Clean(ui.FileList.SelectedRow().FileInfo.Name())
 	ui.Render()
 }
 
@@ -93,49 +148,65 @@ func (ui *UI) leaveDirectory() {
 }
 
 func (ui *UI) selectNextFile() {
-	if ui.FileManager.SelectedRowIndex < len(ui.FileManager.FileRows)-1 {
-		ui.FileManager.SelectRow(ui.FileManager.SelectedRowIndex + 1)
+	if ui.FileList.SelectedRowIndex < len(ui.FileList.FileRows)-1 {
+		ui.FileList.SelectRow(ui.FileList.SelectedRowIndex + 1)
 	} else {
-		ui.FileManager.SelectRow(0)
+		ui.FileList.SelectRow(0)
 	}
 
-	ui.StatusLine.Text = ui.FileManager.SelectedRow().FileInfo.Name()
+	ui.StatusLine.Text = ui.FileList.SelectedRow().FileInfo.Name()
 }
 
 func (ui *UI) selectPrevFile() {
-	if ui.FileManager.SelectedRowIndex > 0 {
-		ui.FileManager.SelectRow(ui.FileManager.SelectedRowIndex - 1)
+	if ui.FileList.SelectedRowIndex > 0 {
+		ui.FileList.SelectRow(ui.FileList.SelectedRowIndex - 1)
 	} else {
-		ui.FileManager.SelectRow(len(ui.FileManager.FileRows) - 1)
+		ui.FileList.SelectRow(len(ui.FileList.FileRows) - 1)
 	}
 
-	ui.StatusLine.Text = ui.FileManager.SelectedRow().FileInfo.Name()
+	ui.StatusLine.Text = ui.FileList.SelectedRow().FileInfo.Name()
 }
 
-// func (ui *UI) startFinding() {
-// 	commandArgs := &commands.InitCommandArgs{
-// 		Ui:             ui,
-// 		Prompt:         "/",
-// 		OnEndInput:     ui.handleFinishedFinding,
-// 		// OnInputChanged: ui.handleFindChanged,
-// 	}
-// }
+func (ui *UI) startFinding() {
+	commandArgs := &commands.InitCommandArgs{
+		Ui:             ui,
+		Prompt:         "/",
+		OnEndInput:     ui.handleFinishedFinding,
+		OnInputChanged: ui.handleFindChanged,
+	}
 
-// func (ui *UI) handleFinishedFinding(command commands.Command) {
+	// clear all rows first
+	for _, row := range ui.FileList.FileRows {
+		row.MarkedText = ""
+	}
 
-// }
+	ui.currentCommand = commands.NewFind(commandArgs)
+	ui.currentCommand.StartInput()
+}
 
-// func (ui *UI) handleFindChanged(command commands.Command) {
-// 	for _, row := range ui.FileManager.FileRows {
-// 		if strings.Contains(row, command.GetInput()) {
+func (ui *UI) handleFinishedFinding(command commands.Command) {
+	count := strconv.Itoa(len(ui.FileList.GetMarkedRowIndices()))
+	ui.exitCommandMode("Found " + count + " match(es).")
+	ui.Render()
+}
 
-// 		}
-// 	}
-// 	ui.FileManager.Rows
-// }
+func (ui *UI) handleFindChanged(command commands.Command) {
+	input := command.GetInput()
+	ui.StatusLine.Text = input
+
+	for _, row := range ui.FileList.FileRows {
+		if strings.Contains(row.DisplayName(), input) {
+			row.MarkedText = input
+		} else {
+			row.MarkedText = ""
+		}
+	}
+
+	ui.Render()
+}
 
 func (ui *UI) selectedFileName() string {
-	return ui.FileManager.SelectedRow().FileInfo.Name()
+	return ui.FileList.SelectedRow().FileInfo.Name()
 }
 
 func (ui *UI) downloadSelectedFile() {
@@ -153,7 +224,7 @@ func (ui *UI) downloadSelectedFile() {
 }
 
 func (ui *UI) handleConfirmedDownloadLocation(command commands.Command) {
-	remotePath := filepath.Clean(ui.Pwd + "/" + ui.FileManager.SelectedRow().FileInfo.Name())
+	remotePath := filepath.Clean(ui.Pwd + "/" + ui.FileList.SelectedRow().FileInfo.Name())
 	localPath := filepath.Clean(command.GetInput())
 	ui.mode = WaitingMode
 	ui.StatusLine.Text = "Downloading…"
@@ -163,14 +234,20 @@ func (ui *UI) handleConfirmedDownloadLocation(command commands.Command) {
 }
 
 func (ui *UI) handleCommandInputChanged(command commands.Command) {
-	ui.StatusLine.Text = command.GetFullText() // not enough, need prompt too
+	ui.StatusLine.Text = command.GetFullText()
 	ui.Render()
 }
 
 func (ui *UI) downloadedFile(remotePath string, localPath string) {
-	ui.mode = NormalMode
-	ui.StatusLine.Text = "Downloaded " + remotePath + " to " + localPath
+	ui.exitCommandMode("Downloaded " + remotePath + " to " + localPath)
 	ui.Render()
+}
+
+func (ui *UI) exitCommandMode(newText string) {
+	ui.mode = NormalMode
+	ui.StatusLine.StaticText = ""
+	ui.StatusLine.Text = newText
+	ui.currentCommand = nil
 }
 
 // Loop listens for events
@@ -184,7 +261,7 @@ func (ui *UI) Loop() {
 		case NormalMode:
 			switch e.ID {
 			// case "d":
-			// 	ui.FileManager.ScrollDown()
+			// 	ui.FileList.ScrollDown()
 			case "q", "<C-c>":
 				return
 			case "j", "<Down>", "<C-n>":
@@ -197,24 +274,27 @@ func (ui *UI) Loop() {
 				ui.leaveDirectory()
 			case "y":
 				ui.downloadSelectedFile()
-				// case "f":
-				// 	ui.startFinding()
+			case "/":
+				ui.startFinding()
+			case "n":
+				ui.goToNextMatch()
+			case "N":
+				ui.goToPrevMatch()
 			}
 
 			ui.Render()
 
 		case CommandMode:
-			if e.ID == "<C-c>" {
-				ui.currentCommand = nil
-				ui.mode = NormalMode
+			if e.ID == "<C-c>" || e.ID == "<Escape>" {
+				ui.exitCommandMode(filepath.Clean(ui.FileList.SelectedRow().FileInfo.Name()))
 				ui.Render()
+			} else if e.ID == "<C-c>" || e.ID == "<Enter>" {
+				ui.currentCommand.EndInput()
 			} else {
+
 				input := ui.currentCommand.GetInput()
 
 				switch e.ID {
-				case "<C-c>":
-				case "<Enter>":
-					ui.currentCommand.EndInput()
 				case "<Backspace>":
 					r, size := utf8.DecodeLastRuneInString(input)
 					if r == utf8.RuneError && (size == 0 || size == 1) {
@@ -236,16 +316,16 @@ func (ui *UI) Loop() {
 	}
 }
 
-func newFileManager() *termui_widgets.List {
-	fileManager := termui_widgets.NewList()
+func newFileList() *termui_widgets.List {
+	fileList := termui_widgets.NewList()
 	style := termui.NewStyle(termui.ColorBlack, termui.ColorWhite)
-	fileManager.SelectedRowStyle = style
-	fileManager.Border = false
+	fileList.SelectedRowStyle = style
+	fileList.Border = false
 
 	width, height := termui.TerminalDimensions()
-	fileManager.SetRect(0, 0, width, height-statusLineHeight)
+	fileList.SetRect(0, 0, width, height-statusLineHeight)
 
-	return fileManager
+	return fileList
 }
 
 func newStatusLine() *widgets.StatusLine {

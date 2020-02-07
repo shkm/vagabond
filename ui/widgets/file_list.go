@@ -9,10 +9,10 @@ import (
 // FileList Widget
 type FileList struct {
 	termui.Block
-	FileRows         []FileRow
+	FileRows         []*FileRow
 	SelectedRowIndex int
 	SelectedStyle    termui.Style
-	HighlightedStyle termui.Style
+	MarkedStyle      termui.Style
 	Style            termui.Style
 	topRow           int
 }
@@ -25,16 +25,26 @@ func NewFileList() *FileList {
 		Block:         block,
 		Style:         termui.NewStyle(termui.ColorWhite),
 		SelectedStyle: termui.NewStyle(termui.ColorBlack, termui.ColorRed),
+		MarkedStyle:   termui.NewStyle(termui.ColorBlack, termui.ColorYellow),
 	}
 }
 
+func (fileList *FileList) GetMarkedRowIndices() []int {
+	var marked []int
+
+	for i, row := range fileList.FileRows {
+		if len(row.MarkedText) > 0 {
+			marked = append(marked, i)
+		}
+	}
+
+	return marked
+}
+
 func (fileList *FileList) SelectRow(rowIndex int) {
-	// prevSelected := fileList.SelectedRow()
 	fileList.SelectedRow().Style = fileList.Style
 	fileList.SelectedRowIndex = rowIndex
 	fileList.SelectedRow().Style = fileList.SelectedStyle
-
-	// if prevSelected
 }
 
 func (fileList *FileList) PopulateRows(parentPath string, files []os.FileInfo) {
@@ -52,15 +62,16 @@ func (fileList *FileList) PopulateRows(parentPath string, files []os.FileInfo) {
 		fileRow.Path = path
 		fileRow.FileInfo = file
 		fileRow.Style = fileList.Style
+		fileRow.MarkedStyle = fileList.MarkedStyle
 
-		fileList.FileRows = append(fileList.FileRows, *fileRow)
+		fileList.FileRows = append(fileList.FileRows, fileRow)
 	}
 
 	fileList.SelectRow(0)
 }
 
 func (fileList *FileList) SelectedRow() *FileRow {
-	return &fileList.FileRows[fileList.SelectedRowIndex]
+	return fileList.FileRows[fileList.SelectedRowIndex]
 }
 
 func (self *FileList) Draw(buf *termui.Buffer) {
