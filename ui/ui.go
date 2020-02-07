@@ -70,58 +70,6 @@ func (ui *UI) Render() {
 	termui.Render(ui.FileList, ui.StatusLine)
 }
 
-func (ui *UI) goToPrevMatch() {
-	prev, next := ui.buildMatchIndices()
-
-	if len(prev) > 0 {
-		ui.FileList.SelectRow(prev[len(prev)-1])
-	} else if len(next) > 0 {
-		ui.FileList.SelectRow(next[len(next)-1])
-	} else {
-		// set status line and return
-		return
-	}
-
-	ui.Render()
-}
-
-func (ui *UI) goToNextMatch() {
-	prev, next := ui.buildMatchIndices()
-
-	if len(next) > 0 {
-		ui.FileList.SelectRow(next[0])
-	} else if len(prev) > 0 {
-		ui.FileList.SelectRow(prev[0])
-	} else {
-		// set status line and return
-		return
-	}
-
-	ui.Render()
-}
-
-func (ui *UI) buildMatchIndices() ([]int, []int) {
-	selectedRowIndex := ui.FileList.SelectedRowIndex
-	indices := ui.FileList.GetMarkedRowIndices()
-
-	var previousIndices []int
-	var nextIndices []int
-
-	for _, index := range indices {
-		if index == selectedRowIndex {
-			continue
-		}
-
-		if index < selectedRowIndex {
-			previousIndices = append(previousIndices, index)
-		} else {
-			nextIndices = append(nextIndices, index)
-		}
-	}
-
-	return previousIndices, nextIndices
-}
-
 func (ui *UI) enterDirectory() {
 	// selectedDir := ui.FileList.Rows[ui.FileList.SelectedRow]
 
@@ -277,9 +225,9 @@ func (ui *UI) Loop() {
 			case "/":
 				ui.startFinding()
 			case "n":
-				ui.goToNextMatch()
+				ui.FileList.GoToNextMatch()
 			case "N":
-				ui.goToPrevMatch()
+				ui.FileList.GoToPrevMatch()
 			}
 
 			ui.Render()

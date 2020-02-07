@@ -29,6 +29,54 @@ func NewFileList() *FileList {
 	}
 }
 
+func (fileList *FileList) GoToPrevMatch() {
+	prev, next := fileList.buildMatchIndices()
+
+	if len(prev) > 0 {
+		fileList.SelectRow(prev[len(prev)-1])
+	} else if len(next) > 0 {
+		fileList.SelectRow(next[len(next)-1])
+	} else {
+		// set status line and return
+		return
+	}
+}
+
+func (fileList *FileList) GoToNextMatch() {
+	prev, next := fileList.buildMatchIndices()
+
+	if len(next) > 0 {
+		fileList.SelectRow(next[0])
+	} else if len(prev) > 0 {
+		fileList.SelectRow(prev[0])
+	} else {
+		// send error to ui
+		return
+	}
+}
+
+func (fileList *FileList) buildMatchIndices() ([]int, []int) {
+	selectedRowIndex := fileList.SelectedRowIndex
+	indices := fileList.GetMarkedRowIndices()
+
+	var previousIndices []int
+	var nextIndices []int
+
+	for _, index := range indices {
+		if index == selectedRowIndex {
+			continue
+		}
+
+		if index < selectedRowIndex {
+			previousIndices = append(previousIndices, index)
+		} else {
+			nextIndices = append(nextIndices, index)
+		}
+	}
+
+	return previousIndices, nextIndices
+}
+
 func (fileList *FileList) GetMarkedRowIndices() []int {
 	var marked []int
 
