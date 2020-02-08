@@ -67,6 +67,6 @@ func (fileRow *FileRow) drawName(buf *termui.Buffer) {
 		}
 
 		cell := termui.NewCell(char, style)
-		buf.SetCell(cell, image.Pt(x+1, 0).Add(fileRow.Min))
+		buf.SetCell(cell, image.Pt(x, 0).Add(fileRow.Min))
 	}
 }

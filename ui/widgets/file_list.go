@@ -17,6 +17,7 @@ type FileList struct {
 	topRow           int
 }
 
+// NewFileList returns a new file list
 func NewFileList() *FileList {
 	block := *termui.NewBlock()
 	block.Border = false
@@ -29,6 +30,7 @@ func NewFileList() *FileList {
 	}
 }
 
+// GoToPrevMatch selects the previous find match if there is one
 func (fileList *FileList) GoToPrevMatch() {
 	prev, next := fileList.buildMatchIndices()
 
@@ -90,7 +92,9 @@ func (fileList *FileList) GetMarkedRowIndices() []int {
 }
 
 func (fileList *FileList) SelectRow(rowIndex int) {
-	fileList.SelectedRow().Style = fileList.Style
+	if fileList.SelectedRowIndex >= 0 {
+		fileList.SelectedRow().Style = fileList.Style
+	}
 	fileList.SelectedRowIndex = rowIndex
 	fileList.SelectedRow().Style = fileList.SelectedStyle
 }
@@ -102,6 +106,8 @@ func (fileList *FileList) PopulateRows(parentPath string, files []os.FileInfo) {
 	// }
 
 	fileList.FileRows = nil
+
+	fileList.SelectedRowIndex = -1
 
 	for _, file := range files {
 		path := filepath.Clean(parentPath + "/" + file.Name())
@@ -118,17 +124,20 @@ func (fileList *FileList) PopulateRows(parentPath string, files []os.FileInfo) {
 	fileList.SelectRow(0)
 }
 
+// SelectedRow returns the selected file row
 func (fileList *FileList) SelectedRow() *FileRow {
 	return fileList.FileRows[fileList.SelectedRowIndex]
 }
 
-func (self *FileList) Draw(buf *termui.Buffer) {
-	self.Block.Draw(buf)
-	width := self.Size().X
-	maxY := self.Inner.Bounds().Max.Y
-	minY := self.Inner.Bounds().Min.Y - 1
-	selectedRowY := self.SelectedRowIndex
-	startFrom := self.topRow
+// Draw draws the file list
+func (fileList *FileList) Draw(buf *termui.Buffer) {
+	fileList.Block.Draw(buf)
+	width := fileList.Size().X
+	maxY := fileList.Inner.Bounds().Max.Y
+	minY := fileList.Inner.Bounds().Min.Y - 1
+	minX := fileList.Inner.Bounds().Min.X
+	selectedRowY := fileList.SelectedRowIndex
+	startFrom := fileList.topRow
 
 	if selectedRowY+startFrom < minY {
 		startFrom = -selectedRowY
@@ -136,16 +145,10 @@ func (self *FileList) Draw(buf *termui.Buffer) {
 		startFrom = maxY - selectedRowY
 	}
 
-	self.topRow = startFrom
+	fileList.topRow = startFrom
 
-	for i, row := range self.FileRows {
-		row.SetRect(0, i+startFrom, width, i+startFrom+FileRowHeight)
+	for i, row := range fileList.FileRows {
+		row.SetRect(minX, i+startFrom, width, i+startFrom+FileRowHeight)
 		row.Draw(buf)
-		// cells := termui.ParseStyles(row.Name, self.Style)
-
-		// for x, char := range row.Name {
-		// 	cell := termui.NewCell(char, self.Style)
-		// 	buf.SetCell(cell, image.Pt(x+1, 0).Add(self.Min))
-		// }
 	}
 }

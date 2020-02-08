@@ -3,6 +3,7 @@ package main
 import (
 	evbus "github.com/asaskevich/EventBus"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -53,18 +54,32 @@ func startFTPClient(reader io.Reader, writer io.WriteCloser) (*sftp.Client, stri
 	return client, filepath.Clean(pwd)
 }
 
-func leaveDirectory(path string) {
+func leaveLocalDirectory(path string) {
 	newPath := filepath.Clean(path + "/..")
-	readDir(newPath)
+	readLocalDir(newPath)
 }
 
-func readDir(path string) {
+func leaveRemoteDirectory(path string) {
+	newPath := filepath.Clean(path + "/..")
+	readRemoteDir(newPath)
+}
+
+func readLocalDir(path string) {
+	files, err := ioutil.ReadDir(path)
+	if err != nil {
+		panic(err)
+	}
+
+	eventBus.Publish("main:local_directory_read", path, files)
+}
+
+func readRemoteDir(path string) {
 	files, err := sftpClient.ReadDir(path)
 	if err != nil {
 		panic(err)
 	}
 
-	eventBus.Publish("main:directory_read", path, files)
+	eventBus.Publish("main:remote_directory_read", path, files)
 }
 
 func downloadFile(remotePath string, localPath string) {
@@ -91,9 +106,11 @@ func downloadFile(remotePath string, localPath string) {
 func main() {
 	// Setup Event Bus
 	eventBus = evbus.New()
-	eventBus.SubscribeAsync("ui:enter_directory", readDir, true)
+	eventBus.SubscribeAsync("ui:enter_local_directory", readLocalDir, true)
+	eventBus.SubscribeAsync("ui:enter_remote_directory", readRemoteDir, true)
 	eventBus.SubscribeAsync("ui:download_file", downloadFile, true)
-	eventBus.SubscribeAsync("ui:leave_directory", leaveDirectory, true)
+	eventBus.SubscribeAsync("ui:leave_local_directory", leaveLocalDirectory, true)
+	eventBus.SubscribeAsync("ui:leave_remote_directory", leaveRemoteDirectory, true)
 
 	sshConnection, writer, reader := openSSHConnection(os.Args[1])
 	defer sshConnection.Wait()
@@ -112,7 +129,8 @@ func main() {
 	vagabondUI = ui.NewUI(eventBus, localPwd, pwd)
 	defer termui.Close()
 
-	readDir(pwd)
+	readRemoteDir(pwd)
+	readLocalDir(localPwd)
 
 	// render
 	vagabondUI.Render()
